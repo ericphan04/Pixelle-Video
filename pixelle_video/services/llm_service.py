@@ -18,7 +18,7 @@ Supports structured output via response_type parameter (Pydantic model).
 
 import json
 import re
-from typing import Optional, Type, TypeVar, Union
+from typing import Optional, Type, TypeVar, Union, List, Dict, Any
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel
@@ -95,18 +95,23 @@ class LLMService:
         Returns:
             AsyncOpenAI client instance
         """
-        # Get API key (priority: parameter > config)
-        final_api_key = (
-            api_key
-            or self._get_config_value("api_key")
-            or "dummy-key"  # Ollama doesn't need real key
-        )
-        
         # Get base URL (priority: parameter > config)
         final_base_url = (
             base_url
             or self._get_config_value("base_url")
         )
+
+        # Get API key (priority: parameter > config > 9router auto-detect > dummy)
+        final_api_key = (
+            api_key
+            or self._get_config_value("api_key")
+        )
+        if not final_api_key and final_base_url and ("20128" in final_base_url or "9router" in final_base_url.lower()):
+            from pixelle_video.utils.llm_util import get_local_9router_key
+            final_api_key = get_local_9router_key()
+
+        if not final_api_key:
+            final_api_key = "dummy-key"  # Ollama or unauthenticated endpoints
         
         # Create client
         client_kwargs = {"api_key": final_api_key}
@@ -114,6 +119,53 @@ class LLMService:
             client_kwargs["base_url"] = final_base_url
         
         return AsyncOpenAI(**client_kwargs)
+
+    async def list_models(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ) -> List[str]:
+        """
+        Query /v1/models endpoint from configured or supplied provider.
+        Does not guess or hardcode model IDs.
+        """
+        client = self._create_client(api_key=api_key, base_url=base_url)
+        try:
+            response = await client.models.list()
+            return [m.id for m in response.data]
+        except Exception as e:
+            logger.warning(f"LLMService: Failed to list models from {client.base_url}: {e}")
+            raise
+
+    async def validate_connection(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Validate OpenAI-compatible endpoint (e.g. 9Router) and verify model availability.
+        """
+        final_base_url = base_url or self._get_config_value("base_url")
+        target_model = model or self._get_config_value("model")
+        try:
+            available_models = await self.list_models(api_key=api_key, base_url=base_url)
+            model_exists = target_model in available_models if target_model else True
+            return {
+                "ok": True,
+                "base_url": final_base_url,
+                "models": available_models,
+                "target_model": target_model,
+                "model_available": model_exists,
+            }
+        except Exception as e:
+            return {
+                "ok": False,
+                "base_url": final_base_url,
+                "error": str(e),
+                "target_model": target_model,
+                "model_available": False,
+            }
     
     async def __call__(
         self,

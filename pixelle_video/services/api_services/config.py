@@ -37,6 +37,8 @@ class _ConfigMeta(type):
             "KLING_BASE_URL": ("kling", "base_url", ""),
             "KLING_ACCESS_KEY": ("kling", "access_key", ""),
             "KLING_SECRET_KEY": ("kling", "secret_key", ""),
+            "MUSE_BASE_URL": ("muse", "base_url", "http://127.0.0.1:8787/v1"),
+            "MUSE_TIMEOUT": ("muse", "timeout", 300.0),
         }
 
         if name not in mapping:

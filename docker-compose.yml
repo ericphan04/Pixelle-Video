@@ -32,6 +32,38 @@ services:
       '
     restart: "no"
 
+  # Muse MCP Service - Node.js HTTP shim for Meta Muse
+  muse-mcp:
+    build:
+      context: ./muse_mcp
+      dockerfile: Dockerfile
+    container_name: pixelle-video-muse
+    ports:
+      - "8787:8787"
+    environment:
+      - NODE_ENV=production
+      - MUSE_SHIM_HOST=0.0.0.0
+      - MUSE_SHIM_PORT=8787
+      - MUSE_CDP=http://host.docker.internal:9222
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./muse_mcp/downloads:/app/downloads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8787/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - pixelle-network
+
   # API Service - FastAPI backend
   api:
     build:
@@ -44,6 +76,8 @@ services:
     depends_on:
       init:
         condition: service_completed_successfully
+      muse-mcp:
+        condition: service_started
     ports:
       - "8000:8000"
     volumes:
@@ -58,6 +92,9 @@ services:
       # Custom resources in data/* will override defaults
     environment:
       - TZ=Asia/Shanghai
+      - MUSE_BASE_URL=http://muse-mcp:8787/v1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -85,6 +122,8 @@ services:
     depends_on:
       init:
         condition: service_completed_successfully
+      muse-mcp:
+        condition: service_started
     ports:
       - "8501:8501"
     volumes:
@@ -102,6 +141,9 @@ services:
       - STREAMLIT_SERVER_PORT=8501
       - STREAMLIT_SERVER_ADDRESS=0.0.0.0
       - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+      - MUSE_BASE_URL=http://muse-mcp:8787/v1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]

@@ -21,6 +21,12 @@ from typing import Dict, Any, List
 
 LLM_PRESETS: List[Dict[str, Any]] = [
     {
+        "name": "9Router",
+        "base_url": "http://localhost:20128/v1",
+        "model": "kr/auto",
+        "api_key_url": "http://localhost:20128",
+    },
+    {
         "name": "Qwen",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "model": "qwen-max",
@@ -69,7 +75,13 @@ def get_preset(name: str) -> Dict[str, Any]:
     """Get preset configuration by name"""
     for preset in LLM_PRESETS:
         if preset["name"] == name:
-            return preset
+            res = dict(preset)
+            if name == "9Router" and not res.get("default_api_key"):
+                from pixelle_video.utils.llm_util import get_local_9router_key
+                key = get_local_9router_key()
+                if key:
+                    res["default_api_key"] = key
+            return res
     return {}
 
 
@@ -80,8 +92,13 @@ def find_preset_by_base_url_and_model(base_url: str, model: str) -> str | None:
     Returns:
         Preset name if found, None otherwise
     """
+    # Exact match first
     for preset in LLM_PRESETS:
         if preset["base_url"] == base_url and preset["model"] == model:
+            return preset["name"]
+    # Fallback to base_url match so custom loaded models still retain the provider preset
+    for preset in LLM_PRESETS:
+        if preset["base_url"] == base_url and base_url and base_url != "https://api.openai.com/v1":
             return preset["name"]
     return None
 

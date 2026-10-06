@@ -1,0 +1,68 @@
+{
+  "name": "muse-chat-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MCP server + OpenAI-compatible HTTP shim that let any MCP or OpenAI client use Meta Muse (muse.ai, the \"Hatch\" agent) by driving your real, logged-in Chrome.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "muse",
+    "meta",
+    "hatch",
+    "playwright",
+    "openai",
+    "openai-compatible",
+    "llm",
+    "browser-automation",
+    "claude-desktop",
+    "opencode"
+  ],
+  "license": "MIT",
+  "author": "fierzone",
+  "homepage": "https://github.com/fierzone/MUSE_MCP#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fierzone/MUSE_MCP.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fierzone/MUSE_MCP/issues"
+  },
+  "bin": {
+    "muse-mcp": "muse-server.mjs",
+    "muse": "muse-cli.mjs",
+    "muse-gen-video": "muse-gen-video.mjs"
+  },
+  "scripts": {
+    "start": "node muse-server.mjs",
+    "web": "node muse-server.mjs --serve-only",
+    "muse": "node muse-cli.mjs",
+    "gen-video": "node muse-gen-video.mjs",
+    "selftest": "node muse-server.mjs --self-test",
+    "dump": "node muse-server.mjs --dump-dom"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@remotion/cli": "4.0.407",
+    "@remotion/tailwind-v4": "4.0.407",
+    "@remotion/zod-types": "4.0.407",
+    "dotenv": "^17.4.2",
+    "edge-tts-universal": "^1.4.0",
+    "playwright-core": "^1.63.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.407",
+    "tailwindcss": "4.0.0",
+    "zod": "3.22.3"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.407",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.19.0",
+    "prettier": "3.6.0",
+    "tsx": "^4.23.13"
+  }
+}

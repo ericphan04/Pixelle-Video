@@ -20,6 +20,10 @@ Key Feature:
   to ensure perfect sync between audio and video (no padding, no trimming needed)
 """
 
+import hashlib
+import json
+import os
+from datetime import datetime
 from typing import Callable, Optional
 
 import httpx
@@ -40,6 +44,45 @@ class FrameProcessor:
             pixelle_video_core: PixelleVideoCore instance
         """
         self.core = pixelle_video_core
+
+    @staticmethod
+    def _compute_cache_hash(data: dict) -> str:
+        """Compute deterministic hash for scene cache validation"""
+        serialized = json.dumps(data, sort_keys=True, default=str)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:16]
+
+    @staticmethod
+    def _is_cache_valid(file_path: str, expected_hash: str) -> bool:
+        """Check if output file exists, is non-empty, and metadata matches expected hash"""
+        if not file_path or not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+            return False
+        meta_path = f"{file_path}.meta.json"
+        if not os.path.exists(meta_path):
+            return False
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            return meta.get("content_hash") == expected_hash
+        except Exception:
+            return False
+
+    @staticmethod
+    def _save_cache_meta(file_path: str, content_hash: str, extra: Optional[dict] = None):
+        """Save cache metadata alongside the artifact"""
+        if not file_path or not os.path.exists(file_path):
+            return
+        meta_path = f"{file_path}.meta.json"
+        meta = {
+            "content_hash": content_hash,
+            "created_at": datetime.now().isoformat()
+        }
+        if extra:
+            meta.update(extra)
+        try:
+            with open(meta_path, "w", encoding="utf-8") as f:
+                json.dump(meta, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to save cache meta for {file_path}: {e}")
     
     async def __call__(
         self,
@@ -160,6 +203,21 @@ class FrameProcessor:
         from pixelle_video.utils.os_util import get_task_frame_path
         output_path = get_task_frame_path(config.task_id, frame.index, "audio")
         
+        # Check cache
+        audio_cache_data = {
+            "text": frame.narration,
+            "inference_mode": config.tts_inference_mode,
+            "voice": config.voice_id,
+            "speed": config.tts_speed,
+            "workflow": config.tts_workflow,
+        }
+        audio_hash = self._compute_cache_hash(audio_cache_data)
+        if self._is_cache_valid(output_path, audio_hash):
+            logger.info(f"  ⚡ Frame {frame.index}: Reusing cached audio ({output_path})")
+            frame.audio_path = output_path
+            frame.duration = await self._get_audio_duration(output_path)
+            return
+
         # Build TTS params based on inference mode
         tts_params = {
             "text": frame.narration,
@@ -191,6 +249,7 @@ class FrameProcessor:
         
         # Get audio duration
         frame.duration = await self._get_audio_duration(audio_path)
+        self._save_cache_meta(audio_path, audio_hash, {"duration": frame.duration})
         
         logger.debug(f"  ✓ Audio generated: {audio_path} ({frame.duration:.2f}s)")
     
@@ -219,6 +278,26 @@ class FrameProcessor:
         api_video_params = dict(config.api_video_params or {}) if media_type == "video" else {}
         if media_type == "video" and workflow_name.startswith("api/"):
             await self._prepare_api_video_inputs(frame, config, api_video_params)
+
+        # Check cache
+        media_cache_data = {
+            "prompt": frame.image_prompt,
+            "workflow": config.media_workflow,
+            "media_type": media_type,
+            "duration": round(frame.duration or 0.0, 2),
+            "ref_image": frame.image_path if media_type == "video" else None,
+            "api_params": api_video_params,
+        }
+        media_hash = self._compute_cache_hash(media_cache_data)
+        if self._is_cache_valid(output_path, media_hash):
+            logger.info(f"  ⚡ Frame {frame.index}: Reusing cached {media_type} ({output_path})")
+            frame.media_type = media_type
+            if media_type == "video":
+                frame.video_path = output_path
+                frame.duration = await self._get_video_duration(output_path)
+            else:
+                frame.image_path = output_path
+            return
 
         media_params = {
             "prompt": frame.image_prompt,
@@ -253,6 +332,7 @@ class FrameProcessor:
                 media_type="image"
             )
             frame.image_path = local_path
+            self._save_cache_meta(local_path, media_hash, {"media_type": "image"})
             logger.debug(f"  ✓ Image generated: {local_path}")
         
         elif media_result.is_video:
@@ -273,6 +353,7 @@ class FrameProcessor:
                 # Get video duration from file
                 frame.duration = await self._get_video_duration(local_path)
                 logger.debug(f"  ✓ Video generated: {local_path} (duration: {frame.duration:.2f}s)")
+            self._save_cache_meta(local_path, media_hash, {"media_type": "video", "duration": frame.duration})
         
         else:
             raise ValueError(f"Unknown media type: {media_result.media_type}")
@@ -391,6 +472,18 @@ class FrameProcessor:
         from pixelle_video.utils.os_util import get_task_frame_path
         output_path = get_task_frame_path(config.task_id, frame.index, "segment")
         
+        # Check cache
+        segment_cache_data = {
+            "media_type": frame.media_type,
+            "media_path": frame.video_path if frame.media_type == "video" else frame.composed_image_path,
+            "audio_path": frame.audio_path,
+        }
+        segment_hash = self._compute_cache_hash(segment_cache_data)
+        if self._is_cache_valid(output_path, segment_hash):
+            logger.info(f"  ⚡ Frame {frame.index}: Reusing cached video segment ({output_path})")
+            frame.video_segment_path = output_path
+            return
+
         from pixelle_video.services.video import VideoService
         video_service = VideoService()
         
@@ -441,6 +534,7 @@ class FrameProcessor:
             raise ValueError(f"Unknown media type: {frame.media_type}")
         
         frame.video_segment_path = segment_path
+        self._save_cache_meta(segment_path, segment_hash)
         
         logger.debug(f"  ✓ Video segment created: {segment_path}")
     

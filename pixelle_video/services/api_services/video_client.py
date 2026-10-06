@@ -14,10 +14,12 @@ try:
     from .video_dashscope import DashscopeVideoClient
     from .video_kling import KlingVideoClient
     from .video_seedance import SeedanceVideoClient
+    from .video_muse import MuseVideoClient
 except ImportError:
     from video_dashscope import DashscopeVideoClient
     from video_kling import KlingVideoClient
     from video_seedance import SeedanceVideoClient
+    from video_muse import MuseVideoClient
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,8 @@ class VideoClient:
         ark_api_key: Optional[str] = None,
         ark_base_url: Optional[str] = None,
         ark_local_proxy: Optional[str] = None,
+        muse_base_url: Optional[str] = None,
+        muse_timeout: Optional[float] = None,
     ):
         self._dashscope_api_key = dashscope_api_key or Config.DASHSCOPE_API_KEY
         self._dashscope_base_url = dashscope_base_url or Config.DASHSCOPE_BASE_URL
@@ -54,9 +58,13 @@ class VideoClient:
         self._ark_base_url = ark_base_url or Config.ARK_BASE_URL or os.getenv("ARK_BASE_URL")
         self._ark_local_proxy = ark_local_proxy
 
+        self._muse_base_url = muse_base_url or Config.MUSE_BASE_URL
+        self._muse_timeout = muse_timeout or Config.MUSE_TIMEOUT
+
         self._dashscope_client = None
         self._kling_client = None
         self._seedance_client = None
+        self._muse_client = None
 
     @property
     def Dashscope_client(self):
@@ -92,6 +100,16 @@ class VideoClient:
             )
         return self._seedance_client
 
+    @property
+    def muse_client(self):
+        """Create Muse client only when a Muse model is selected."""
+        if self._muse_client is None:
+            self._muse_client = MuseVideoClient(
+                base_url=self._muse_base_url,
+                timeout=self._muse_timeout,
+            )
+        return self._muse_client
+
     def generate_video(
         self,
         prompt: str,
@@ -118,6 +136,7 @@ class VideoClient:
         cfg_scale: float = 0.5,
         generate_audio: Optional[bool] = None,
         audio: Optional[bool] = None,
+        **kwargs,
     ) -> str:
         """
         生成视频
@@ -201,6 +220,17 @@ class VideoClient:
                 seed,
                 watermark,
                 generate_audio,
+            )
+        elif "muse" in model_lower:
+            return self._generate_muse(
+                prompt=prompt,
+                image_path=image_path,
+                save_path=save_path,
+                model=model,
+                duration=duration,
+                video_ratio=video_ratio,
+                resolution=resolution,
+                **kwargs,
             )
         elif "wan" in model_lower or "happyhorse" in model_lower:
             return self._generate_wan(
@@ -330,4 +360,28 @@ class VideoClient:
             seed=seed,
             watermark=watermark,
             generate_audio=generate_audio,
+        )
+
+    def _generate_muse(
+        self,
+        prompt: str,
+        image_path: Optional[str],
+        save_path: str,
+        model: str,
+        duration: int = 5,
+        video_ratio: str = "9:16",
+        resolution: Optional[str] = None,
+        **kwargs
+    ) -> str:
+        """Route to Muse.ai video client via MUSE_MCP."""
+        logger.info(f"VideoClient: Routing to Muse.ai model={model}")
+        return self.muse_client.generate_video(
+            prompt=prompt,
+            image_path=image_path,
+            save_path=save_path,
+            model=model,
+            duration=duration,
+            video_ratio=video_ratio,
+            resolution=resolution,
+            **kwargs
         )

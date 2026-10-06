@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="template:media-width" content="1920">
+    <meta name="template:media-height" content="1080">
+    <meta name="viewport" content="width=1920, height=1080">
+    <title>Video 16:9 Landscape Overlay</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 1920px;
+            height: 1080px;
+            overflow: hidden;
+            background: transparent !important;
+            font-family: 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        .main-container {
+            position: relative;
+            width: 1920px;
+            height: 1080px;
+            background: transparent !important;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            padding: 50px 80px;
+        }
+
+        /* Top Title Tag (Subtle Badge) */
+        .title-badge-wrapper {
+            position: absolute;
+            top: 45px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+        }
+
+        .title-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 28px;
+            background: rgba(15, 30, 20, 0.65);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(52, 211, 153, 0.4);
+            border-radius: 9999px;
+            color: #ecfdf5;
+            font-size: 26px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+        }
+
+        .title-icon {
+            font-size: 26px;
+        }
+
+        /* Subtitle Banner (Bottom) */
+        .subtitle-wrapper {
+            position: absolute;
+            bottom: 70px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            max-width: 1620px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+        }
+
+        .subtitle-pill {
+            background: rgba(10, 15, 20, 0.72);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 36px;
+            padding: 18px 48px;
+            max-width: 95%;
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+            text-align: center;
+        }
+
+        .subtitle-text {
+            color: #ffffff;
+            font-size: 42px;
+            font-weight: 600;
+            line-height: 1.45;
+            letter-spacing: 0.3px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8), 0 0 2px rgba(0, 0, 0, 0.9);
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <!-- Optional Top Category/Title -->
+        <div class="title-badge-wrapper">
+            <div class="title-badge">
+                <span class="title-icon">🌱</span>
+                <span>{{title}}</span>
+            </div>
+        </div>
+
+        <!-- Vietnamese Subtitle -->
+        <div class="subtitle-wrapper">
+            <div class="subtitle-pill">
+                <p class="subtitle-text">{{text}}</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

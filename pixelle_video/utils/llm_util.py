@@ -17,9 +17,30 @@ Uses the OpenAI-compatible models endpoint.
 """
 
 import re
-from typing import List, Tuple
+from typing import List, Tuple, Optional
+import os
+import sqlite3
+from pathlib import Path
 import httpx
 from loguru import logger
+
+
+def get_local_9router_key() -> Optional[str]:
+    """Auto-detect active API key from local 9router installation if available."""
+    try:
+        app_data = os.getenv("APPDATA")
+        if not app_data:
+            return None
+        db_path = Path(app_data) / "9router" / "db" / "data.sqlite"
+        if not db_path.exists():
+            return None
+        with sqlite3.connect(str(db_path)) as conn:
+            row = conn.execute("SELECT key FROM apiKeys WHERE isActive = 1 ORDER BY id DESC").fetchone()
+            if row and row[0]:
+                return str(row[0]).strip()
+    except Exception as e:
+        logger.debug(f"Could not auto-read 9router key: {e}")
+    return None
 
 
 def _build_models_url(base_url: str) -> str:
@@ -70,10 +91,14 @@ def fetch_available_models(api_key: str, base_url: str, timeout: float = 10.0) -
         httpx.HTTPStatusError: If the API returns an error status code
         httpx.RequestError: If there's a network error
     """
+    effective_key = api_key
+    if not effective_key and ("20128" in base_url or "9router" in base_url.lower()):
+        effective_key = get_local_9router_key() or ""
+
     models_url = _build_models_url(base_url)
     
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {effective_key}",
         "Content-Type": "application/json",
     }
     

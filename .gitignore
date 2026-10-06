@@ -74,3 +74,12 @@ examples/
 repositories/
 
 *.out
+
+# Muse MCP
+muse_mcp/node_modules/
+muse_mcp/.muse-profile/
+muse_mcp/downloads/
+muse_mcp/.env
+muse_mcp/src/uploads/*
+!muse_mcp/src/uploads/.gitkeep
+

@@ -80,11 +80,16 @@ def render_advanced_settings():
                         # Same preset as saved config: keep API key
                         default_api_key = current_llm["api_key"]
                     else:
-                        # Different preset: use default_api_key if provided (e.g., Ollama), otherwise clear
+                        # Different preset: use default_api_key if provided (e.g., Ollama, 9Router), otherwise clear
                         default_api_key = preset_config.get("default_api_key", "")
-                    
+
                     default_base_url = preset_config.get("base_url", "")
                     default_model = preset_config.get("model", "")
+                    
+                    # Auto-fill 9router key if empty
+                    if not default_api_key and (selected_preset == "9Router" or "20128" in default_base_url):
+                        from pixelle_video.utils.llm_util import get_local_9router_key
+                        default_api_key = get_local_9router_key() or ""
                     
                     # Show API key URL if available
                     if preset_config.get("api_key_url"):
@@ -116,8 +121,15 @@ def render_advanced_settings():
                 
                 # Model selection with dropdown and load button
                 # Initialize session state for loaded models
-                if "llm_loaded_models" not in st.session_state:
-                    st.session_state.llm_loaded_models = []
+                if "llm_loaded_models" not in st.session_state or not st.session_state.llm_loaded_models:
+                    if (selected_preset == "9Router" or "20128" in default_base_url) and default_base_url:
+                        try:
+                            from pixelle_video.utils.llm_util import fetch_available_models
+                            st.session_state.llm_loaded_models = fetch_available_models(llm_api_key or default_api_key, default_base_url)
+                        except Exception:
+                            st.session_state.llm_loaded_models = []
+                    else:
+                        st.session_state.llm_loaded_models = []
                 
                 # Build model options: Custom option + loaded models
                 CUSTOM_MODEL_OPTION = f"✏️ {tr('settings.llm.custom_model')}"
@@ -300,11 +312,13 @@ def render_advanced_settings():
         dashscope_cfg = api_cfg.get("dashscope", {})
         ark_cfg = api_cfg.get("ark", {})
         kling_cfg = api_cfg.get("kling", {})
+        muse_cfg = api_cfg.get("muse", {})
         default_api_base_urls = {
             "openai": "https://api.openai.com/v1",
             "dashscope": "https://dashscope.aliyuncs.com/api/v1",
             "ark": "https://ark.cn-beijing.volces.com/api/v3",
             "kling": "https://api-beijing.klingai.com",
+            "muse": "http://127.0.0.1:8787/v1",
         }
 
         with st.container(border=True):
@@ -426,6 +440,61 @@ def render_advanced_settings():
                     type="password",
                     key="api_media_kling_secret_key",
                 )
+
+                st.markdown("**Muse.ai (via MUSE_MCP Bridge)**")
+                api_muse_base_url = st.text_input(
+                    "Muse Bridge Base URL",
+                    value=muse_cfg.get("base_url") or default_api_base_urls["muse"],
+                    placeholder="http://127.0.0.1:8787/v1",
+                    key="api_media_muse_base_url",
+                )
+                api_muse_timeout = st.number_input(
+                    "Muse Timeout (seconds)" if not zh else "Muse 超时时间（秒）",
+                    min_value=30,
+                    max_value=1200,
+                    value=int(muse_cfg.get("timeout") or 300),
+                    key="api_media_muse_timeout",
+                )
+
+                # Connect and Check Login buttons
+                muse_btn_col1, muse_btn_col2 = st.columns(2)
+                with muse_btn_col1:
+                    connect_clicked = st.button("🔗 Mở Muse.ai đăng nhập" if not zh else "🔗 打开 Muse.ai 登录", use_container_width=True, key="connect_muse_btn")
+                with muse_btn_col2:
+                    check_clicked = st.button("🔄 Kiểm tra đăng nhập" if not zh else "🔄 检查登录状态", use_container_width=True, key="check_muse_btn")
+
+                if "muse_status_cache" not in st.session_state:
+                    try:
+                        from pixelle_video.services.api_services.video_muse import MuseVideoClient
+                        st.session_state["muse_status_cache"] = MuseVideoClient(base_url=api_muse_base_url, timeout=int(api_muse_timeout)).check_status()
+                    except Exception:
+                        pass
+
+                if connect_clicked:
+                    from pixelle_video.services.api_services.video_muse import MuseVideoClient
+                    client = MuseVideoClient(base_url=api_muse_base_url, timeout=int(api_muse_timeout))
+                    res = client.connect_bridge()
+                    st.session_state["muse_status_cache"] = res
+                    if not res.get("loggedIn"):
+                        st.info("🌐 Đã khởi động Chrome tới https://muse.ai. Nếu chưa thấy cửa sổ bật lên, bạn có thể chạy file Open_Muse_Login.bat trên Desktop hoặc start_muse_chrome.bat trong thư mục dự án để đăng nhập, sau đó bấm 'Kiểm tra đăng nhập'!" if not zh else "🌐 已启动 Chrome 访问 muse.ai，请在浏览器中登录后点击'检查登录状态'！")
+
+                if check_clicked:
+                    from pixelle_video.services.api_services.video_muse import MuseVideoClient
+                    client = MuseVideoClient(base_url=api_muse_base_url, timeout=int(api_muse_timeout))
+                    st.session_state["muse_status_cache"] = client.check_status()
+
+                # Display status badge if available
+                cached_st = st.session_state.get("muse_status_cache")
+                if cached_st:
+                    is_logged = cached_st.get("loggedIn", False)
+                    is_running = cached_st.get("browserRunning", False)
+                    v_id = cached_st.get("viewerId")
+                    if is_logged:
+                        st.success(f"✅ Đã kết nối & Đăng nhập Muse.ai! (Tài khoản ID: {v_id or 'Logged In'}) - Phiên đăng nhập được lưu vĩnh viễn tại .muse-profile" if not zh else f"✅ 已成功连接并登录 Muse.ai！(ID: {v_id or 'OK'})")
+                    elif is_running:
+                        st.warning("⏳ Trình duyệt đang mở tại muse.ai nhưng chưa đăng nhập tài khoản. Hãy đăng nhập trên Chrome rồi bấm 'Kiểm tra đăng nhập'." if not zh else "⏳ 浏览器已打开，尚未检测到登录。请在 Chrome 中登录后重新检测。")
+                    else:
+                        st.error("❌ Chưa mở được Chrome kết nối port 9222. Hãy bấm 'Mở Muse.ai đăng nhập' hoặc chạy Open_Muse_Login.bat trên Desktop." if not zh else "❌ 未能连接 Chrome，请点击'打开 Muse.ai 登录'。")
         
         # ====================================================================
         # Action Buttons (full width at bottom)
@@ -437,10 +506,15 @@ def render_advanced_settings():
             if st.button(tr("btn.save_config"), use_container_width=True, key="save_config_btn"):
                 try:
                     # Validate and save LLM configuration
-                    if not (llm_api_key and llm_base_url and llm_model):
+                    effective_api_key = llm_api_key
+                    if not effective_api_key and llm_base_url and ("20128" in llm_base_url or "9router" in llm_base_url.lower()):
+                        from pixelle_video.utils.llm_util import get_local_9router_key
+                        effective_api_key = get_local_9router_key() or ""
+
+                    if not (effective_api_key and llm_base_url and llm_model):
                         st.error(tr("status.llm_config_incomplete"))
                     else:
-                        config_manager.set_llm_config(llm_api_key, llm_base_url, llm_model)
+                        config_manager.set_llm_config(effective_api_key, llm_base_url, llm_model)
                     
                     # Save ComfyUI configuration (optional fields, always save what's provided)
                     # Convert checkbox to instance type: True -> "plus", False -> ""
@@ -479,9 +553,13 @@ def render_advanced_settings():
                         "secret_key": api_kling_secret_key or "",
                         "use_proxy": bool(api_kling_use_proxy),
                     })
+                    config_manager.set_api_provider_config("muse", {
+                        "base_url": api_muse_base_url or "http://127.0.0.1:8787/v1",
+                        "timeout": int(api_muse_timeout),
+                    })
                     
                     # Only save to file if LLM config is valid
-                    if llm_api_key and llm_base_url and llm_model:
+                    if effective_api_key and llm_base_url and llm_model:
                         config_manager.save()
                         st.success(tr("status.config_saved"))
                         safe_rerun()

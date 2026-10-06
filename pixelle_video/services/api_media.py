@@ -59,9 +59,25 @@ class APIProviderMediaService:
             "seedance-1-0-pro",
             "seedance-1-0-lite",
         ],
+        "muse": [
+            "muse-video",
+        ],
     }
 
     VIDEO_MODEL_CAPABILITIES: dict[tuple[str, str], dict[str, Any]] = {
+        ("muse", "muse-video"): {
+            "ability_type": "text_to_video",
+            "ability_types": ["text_to_video", "image_to_video"],
+            "adapter_ability_types": ["text_to_video", "image_to_video"],
+            "input_modalities": ["text", "image"],
+            "adapter_input_modalities": ["text", "image"],
+            "duration": {"min": 3, "max": 60, "integer": True, "verified": True},
+            "resolutions": ["720P", "1080P"],
+            "ratios": ["16:9", "9:16", "1:1"],
+            "fps": 30,
+            "format": "mp4",
+            "api_contract_verified": True,
+        },
         ("dashscope", "wan2.7-t2v"): {
             "ability_type": "text_to_video",
             "ability_types": ["text_to_video", "native_audio", "multi_shot"],
@@ -698,6 +714,8 @@ class APIProviderMediaService:
             ark_api_key=cfg["ark"].get("api_key") or None,
             ark_base_url=cfg["ark"].get("base_url") or None,
             ark_local_proxy=local_proxy if cfg["ark"].get("use_proxy") else None,
+            muse_base_url=cfg.get("muse", {}).get("base_url") or None,
+            muse_timeout=cfg.get("muse", {}).get("timeout") or None,
         )
 
     def _save_dir(self, output_path: Optional[str], fallback_name: str) -> str:

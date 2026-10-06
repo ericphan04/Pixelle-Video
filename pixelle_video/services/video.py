@@ -365,11 +365,21 @@ class VideoService:
             diff = video_duration - audio_duration
             
             if diff < 0:
-                # Video shorter than audio → Must pad to avoid black screen
-                logger.warning(f"⚠️ Video shorter than audio by {abs(diff):.2f}s, padding required")
-                video = self._pad_video_to_duration(video, audio_duration, pad_strategy)
+                shortage = abs(diff)
+                is_severe_shortage = shortage > 2.0 and (video_duration / max(0.1, audio_duration)) < 0.7
+                if is_severe_shortage and pad_strategy == "freeze":
+                    logger.warning(
+                        f"⚠️ Significant duration shortage detected: clip is {video_duration:.2f}s "
+                        f"while voice narration is {audio_duration:.2f}s (difference: {shortage:.2f}s). "
+                        f"Using loop extension strategy to prevent long static freeze frame."
+                    )
+                    chosen_strategy = "loop"
+                else:
+                    logger.warning(f"⚠️ Video shorter than audio by {shortage:.2f}s, padding required")
+                    chosen_strategy = pad_strategy
+                video = self._pad_video_to_duration(video, audio_duration, chosen_strategy)
                 video_duration = audio_duration  # Update duration after padding
-                logger.info(f"📌 Padded video to {audio_duration:.2f}s")
+                logger.info(f"📌 Extended video to {audio_duration:.2f}s using strategy '{chosen_strategy}'")
             
             elif diff > duration_tolerance:
                 # Video significantly longer than audio → Trim
@@ -945,7 +955,24 @@ class VideoService:
             input_video = ffmpeg.input(video)
             video_stream = input_video.video
             
-            if pad_strategy == "freeze":
+            if pad_strategy == "loop":
+                # Seamlessly loop the video to cover target duration without frozen frame
+                loop_count = max(1, int(target_duration / max(0.1, video_duration)) + 1)
+                looped_input = ffmpeg.input(video, stream_loop=loop_count)
+                (
+                    ffmpeg
+                    .output(
+                        looped_input.video,
+                        output,
+                        t=target_duration,
+                        vcodec='libx264',
+                        preset='fast',
+                        crf=23
+                    )
+                    .overwrite_output()
+                    .run(capture_stdout=True, capture_stderr=True, quiet=True)
+                )
+            elif pad_strategy == "freeze":
                 # Freeze last frame using tpad filter
                 video_stream = video_stream.filter('tpad', stop_mode='clone', stop_duration=pad_duration)
                 
@@ -1001,4 +1028,191 @@ class VideoService:
             error_msg = e.stderr.decode() if e.stderr else str(e)
             logger.error(f"FFmpeg error padding video: {error_msg}")
             raise RuntimeError(f"Failed to pad video: {error_msg}")
+
+    def get_video_info(self, video_path: str) -> dict:
+        """Probe video file and return probe dictionary."""
+        self._ensure_ffmpeg()
+        return ffmpeg.probe(video_path)
+
+    def get_video_duration(self, video_path: str) -> float:
+        """Get video duration in seconds via ffprobe."""
+        probe = self.get_video_info(video_path)
+        return float(probe.get("format", {}).get("duration", 0.0))
+
+    def _get_video_duration(self, video_path: str) -> float:
+        """Helper to get video duration."""
+        return self.get_video_duration(video_path)
+
+    def concat_videos_with_transitions(
+        self,
+        videos: List[str],
+        output: str,
+        transition: str = "fade",
+        transition_duration: float = 0.5,
+        narration_audios: Optional[List[str]] = None,
+        bgm_path: Optional[str] = None,
+        bgm_volume: float = 0.2,
+        bgm_mode: str = "loop",
+        keep_clip_audio: bool = False,
+        keep_original_audio: Optional[bool] = None,
+    ) -> str:
+        """
+        Concatenate multiple video clips with configurable visual transitions (xfade).
+        Keeps narration audio on its own sequential timeline to prevent speech collision.
+        
+        Args:
+            videos: List of input video clip paths
+            output: Output video path
+            transition: Transition effect ("fade", "dissolve", "wipeleft", "wiperight", "slideleft")
+            transition_duration: Duration of transition in seconds
+            narration_audios: Optional list of speech narration files (one per scene)
+            bgm_path: Optional background music path
+            bgm_volume: BGM volume multiplier
+            bgm_mode: BGM play mode ("loop" or "once")
+            keep_clip_audio: Whether to preserve original audio from clips
+            keep_original_audio: Alias for keep_clip_audio
+        """
+        if keep_original_audio is not None:
+            keep_clip_audio = keep_original_audio
+
+        self._ensure_ffmpeg()
+        if not videos:
+            raise ValueError("Videos list cannot be empty")
+
+        if len(videos) == 1 or transition == "none" or transition_duration <= 0:
+            logger.info("Using standard concatenation without transitions")
+            return self.concat_videos(videos=videos, output=output, bgm_path=bgm_path, bgm_volume=bgm_volume, bgm_mode=bgm_mode)
+
+        logger.info(
+            f"Concatenating {len(videos)} clips with '{transition}' transition ({transition_duration}s). "
+            f"Narration audios: {len(narration_audios) if narration_audios else 0}, keep_clip_audio={keep_clip_audio}"
+        )
+
+        try:
+            import subprocess
+
+            durations = [self._get_video_duration(v) for v in videos]
+            safe_trans_dur = min(transition_duration, min(durations) * 0.4)
+
+            # Check if all clips have audio streams
+            clips_have_audio = all(self.has_audio_stream(v) for v in videos)
+
+            # 1. Prepare narration track sequentially if provided and clips don't have audio
+            narration_temp = None
+            if not clips_have_audio and narration_audios and len(narration_audios) == len(videos):
+                narration_temp = self._get_unique_temp_path("narration_track", "voice.m4a")
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', encoding='utf-8') as f:
+                    for a in narration_audios:
+                        f.write(f"file '{Path(a).absolute().as_posix()}'\n")
+                    a_list = f.name
+                try:
+                    subprocess.run(
+                        ['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', a_list, '-c:a', 'aac', '-b:a', '192k', narration_temp],
+                        capture_output=True, check=True
+                    )
+                finally:
+                    if os.path.exists(a_list):
+                        os.unlink(a_list)
+
+            # 2. Add all input files BEFORE any filter or map options
+            cmd = ['ffmpeg', '-y']
+            for v in videos:
+                cmd.extend(['-i', v])
+
+            input_idx = len(videos)
+            narration_idx = None
+            bgm_idx = None
+
+            if narration_temp and os.path.exists(narration_temp):
+                narration_idx = input_idx
+                cmd.extend(['-i', narration_temp])
+                input_idx += 1
+
+            if bgm_path:
+                resolved_bgm = self._resolve_bgm_path(bgm_path)
+                bgm_idx = input_idx
+                cmd.extend(['-stream_loop', '-1', '-i', resolved_bgm])
+                input_idx += 1
+
+            # 3. Build video xfade filter complex
+            filter_parts = []
+            last_v = "0:v"
+            current_offset = 0.0
+
+            for i in range(1, len(videos)):
+                d_prev = durations[i - 1]
+                if i == 1:
+                    current_offset = d_prev - safe_trans_dur
+                else:
+                    current_offset += d_prev - safe_trans_dur
+
+                out_v = f"v{i}" if i < len(videos) - 1 else "v_final"
+                filter_parts.append(
+                    f"[{last_v}][{i}:v]xfade=transition={transition}:duration={safe_trans_dur}:offset={current_offset:.3f}[{out_v}]"
+                )
+                last_v = out_v
+
+            # 4. Audio filter & stream mapping
+            audio_map = None
+            if clips_have_audio and len(videos) > 1:
+                last_a = "0:a"
+                for i in range(1, len(videos)):
+                    out_a = f"a{i}" if i < len(videos) - 1 else "voice"
+                    filter_parts.append(
+                        f"[{last_a}][{i}:a]acrossfade=d={safe_trans_dur}:c1=tri:c2=tri[{out_a}]"
+                    )
+                    last_a = out_a
+
+                if bgm_idx is not None:
+                    filter_parts.append(
+                        f"[{last_a}]volume=1.0[voice_clean];[{bgm_idx}:a]volume={bgm_volume}[bgm];"
+                        f"[voice_clean][bgm]amix=inputs=2:duration=first:dropout_transition=2[a_final]"
+                    )
+                    audio_map = "[a_final]"
+                else:
+                    audio_map = f"[{last_a}]"
+            elif narration_idx is not None and bgm_idx is not None:
+                audio_filter = f"[{narration_idx}:a]volume=1.0[voice];[{bgm_idx}:a]volume={bgm_volume}[bgm];[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[a_final]"
+                filter_parts.append(audio_filter)
+                audio_map = "[a_final]"
+            elif narration_idx is not None:
+                audio_map = f"{narration_idx}:a"
+            elif bgm_idx is not None:
+                audio_map = f"{bgm_idx}:a"
+
+            filter_str = ";".join(filter_parts)
+            cmd.extend(['-filter_complex', filter_str])
+            cmd.extend(['-map', f'[{last_v}]'])
+
+            if audio_map:
+                cmd.extend(['-map', audio_map])
+                if bgm_idx is not None and narration_idx is None and not clips_have_audio:
+                    cmd.append('-shortest')
+                cmd.extend(['-c:a', 'aac', '-b:a', '192k'])
+            else:
+                cmd.append('-an')
+
+            cmd.extend([
+                '-c:v', 'libx264',
+                '-pix_fmt', 'yuv420p',
+                '-preset', 'medium',
+                '-crf', '22',
+                output
+            ])
+
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode != 0:
+                logger.warning(f"xfade transition failed ({res.stderr}), falling back to standard concat")
+                return self.concat_videos(videos=videos, output=output, bgm_path=bgm_path, bgm_volume=bgm_volume)
+
+            logger.success(f"Video with transitions created successfully: {output}")
+            return output
+        except Exception as e:
+            logger.error(f"Error creating video with transitions: {e}, falling back to standard concat")
+            return self.concat_videos(videos=videos, output=output, bgm_path=bgm_path, bgm_volume=bgm_volume)
+        finally:
+            if narration_temp and os.path.exists(narration_temp):
+                try: os.unlink(narration_temp)
+                except Exception: pass
+
 

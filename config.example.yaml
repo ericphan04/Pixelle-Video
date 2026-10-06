@@ -40,6 +40,9 @@ api_providers:
     access_key: ""
     secret_key: ""
     use_proxy: false
+  muse:
+    base_url: "http://127.0.0.1:8787/v1"
+    timeout: 300
 
 # ==================== ComfyUI Configuration ====================
 comfyui:

@@ -1,0 +1,7 @@
+node_modules/
+.muse-profile/
+downloads/
+.git/
+.env
+*.log
+src/uploads/*

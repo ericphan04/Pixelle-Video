@@ -25,6 +25,7 @@ from loguru import logger
 from pixelle_video.services.comfy_base_service import ComfyBaseService
 from pixelle_video.utils.tts_util import edge_tts
 from pixelle_video.tts_voices import speed_to_rate
+from pixelle_video.services.tts_providers import get_tts_provider
 
 
 class TTSService(ComfyBaseService):
@@ -167,31 +168,17 @@ class TTSService(ComfyBaseService):
         # Convert speed to rate parameter
         rate = speed_to_rate(final_speed)
         
-        logger.info(f"🎙️  Using local Edge TTS: voice={final_voice}, speed={final_speed}x (rate={rate})")
-        
-        # Generate output path if not provided
-        if not output_path:
-            # Generate unique filename
-            unique_id = uuid.uuid4().hex
-            output_path = f"output/{unique_id}.mp3"
-            
-            # Ensure output directory exists
-            Path("output").mkdir(parents=True, exist_ok=True)
-        
-        # Call Edge TTS
+        provider_name = local_config.get("provider", "edge")
+        provider = get_tts_provider(provider_name)
         try:
-            audio_bytes = await edge_tts(
+            return await provider.generate_speech(
                 text=text,
                 voice=final_voice,
-                rate=rate,
-                output_path=output_path
+                speed=final_speed,
+                output_path=output_path,
             )
-            
-            logger.info(f"✅ Generated audio (local Edge TTS): {output_path}")
-            return output_path
-        
         except Exception as e:
-            logger.error(f"Local TTS generation error: {e}")
+            logger.error(f"TTS provider '{provider_name}' generation error: {e}")
             raise
     
     async def _call_comfyui_workflow(

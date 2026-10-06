@@ -47,6 +47,12 @@ class AccessSecretProviderConfig(BaseModel):
     use_proxy: bool = Field(default=False, description="Route provider requests through common local proxy")
 
 
+class MuseProviderConfig(BaseModel):
+    """Muse provider settings for MUSE_MCP bridge"""
+    base_url: str = Field(default="http://127.0.0.1:8787/v1", description="MUSE_MCP HTTP shim Base URL")
+    timeout: float = Field(default=300.0, description="Timeout in seconds for video generation")
+
+
 class APIProvidersConfig(BaseModel):
     """Direct model provider API configuration"""
     common: APIProviderCommonConfig = Field(default_factory=APIProviderCommonConfig)
@@ -56,6 +62,7 @@ class APIProvidersConfig(BaseModel):
     gemini: APIKeyProviderConfig = Field(default_factory=APIKeyProviderConfig)
     ark: APIKeyProviderConfig = Field(default_factory=APIKeyProviderConfig)
     kling: AccessSecretProviderConfig = Field(default_factory=AccessSecretProviderConfig)
+    muse: MuseProviderConfig = Field(default_factory=MuseProviderConfig)
 
 
 class TTSLocalConfig(BaseModel):
@@ -130,8 +137,13 @@ class PixelleVideoConfig(BaseModel):
     
     def is_llm_configured(self) -> bool:
         """Check if LLM is properly configured"""
+        key = self.llm.api_key
+        if not (key and key.strip()) and self.llm.base_url and ("20128" in self.llm.base_url or "9router" in self.llm.base_url.lower()):
+            from pixelle_video.utils.llm_util import get_local_9router_key
+            key = get_local_9router_key()
+
         return bool(
-            self.llm.api_key and self.llm.api_key.strip() and
+            key and str(key).strip() and
             self.llm.base_url and self.llm.base_url.strip() and
             self.llm.model and self.llm.model.strip()
         )

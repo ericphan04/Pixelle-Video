@@ -40,21 +40,27 @@ st.set_page_config(
 def main():
     """Main entry point with navigation"""
     # Define pages using st.Page
+    studio_page = st.Page(
+        "pages/3_✨_Studio_Video_AI.py",
+        title="Studio Video AI",
+        icon="✨",
+        default=True
+    )
+    
     home_page = st.Page(
         "pages/1_🎬_Home.py",
-        title="Home",
+        title="Chế độ Cũ (Classic)",
         icon="🎬",
-        default=True
     )
     
     history_page = st.Page(
         "pages/2_📚_History.py",
-        title="History",
+        title="Lịch sử (History)",
         icon="📚"
     )
     
     # Set up navigation and run
-    pg = st.navigation([home_page, history_page])
+    pg = st.navigation([studio_page, home_page, history_page])
     pg.run()
 
 

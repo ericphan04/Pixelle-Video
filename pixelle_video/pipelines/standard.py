@@ -170,6 +170,12 @@ class StandardPipeline(LinearVideoPipeline):
         
         # Only generate image prompts if template requires media
         if template_requires_media:
+            custom_prompts = ctx.params.get("image_prompts")
+            if custom_prompts and len(custom_prompts) == len(ctx.narrations):
+                ctx.image_prompts = list(custom_prompts)
+                logger.info(f"✅ Using {len(ctx.image_prompts)} user-specified image prompts")
+                return
+
             self._report_progress(ctx.progress_callback, "generating_image_prompts", 0.15)
             
             prompt_prefix = ctx.params.get("prompt_prefix")
@@ -415,13 +421,31 @@ class StandardPipeline(LinearVideoPipeline):
         
         video_service = VideoService()
         
-        final_video_path = video_service.concat_videos(
-            videos=segment_paths,
-            output=ctx.final_video_path,
-            bgm_path=ctx.params.get("bgm_path"),
-            bgm_volume=ctx.params.get("bgm_volume", 0.2),
-            bgm_mode=ctx.params.get("bgm_mode", "loop")
-        )
+        transition = ctx.params.get("transition") or ctx.params.get("transition_name")
+        transition_duration = float(ctx.params.get("transition_duration", 0.5))
+        keep_original_audio = ctx.params.get("keep_original_audio", True)
+        
+        if transition and transition != "none" and len(segment_paths) > 1:
+            narration_audios = [frame.audio_path for frame in storyboard.frames if frame.audio_path]
+            final_video_path = video_service.concat_videos_with_transitions(
+                videos=segment_paths,
+                output=ctx.final_video_path,
+                transition=transition,
+                transition_duration=transition_duration,
+                bgm_path=ctx.params.get("bgm_path"),
+                bgm_volume=ctx.params.get("bgm_volume", 0.2),
+                bgm_mode=ctx.params.get("bgm_mode", "loop"),
+                narration_audios=narration_audios if len(narration_audios) == len(segment_paths) else None,
+                keep_original_audio=keep_original_audio
+            )
+        else:
+            final_video_path = video_service.concat_videos(
+                videos=segment_paths,
+                output=ctx.final_video_path,
+                bgm_path=ctx.params.get("bgm_path"),
+                bgm_volume=ctx.params.get("bgm_volume", 0.2),
+                bgm_mode=ctx.params.get("bgm_mode", "loop")
+            )
         
         storyboard.final_video_path = final_video_path
         storyboard.completed_at = datetime.now()

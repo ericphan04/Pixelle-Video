@@ -43,6 +43,20 @@ Usage:
     print(pixelle_video.pipelines.keys())  # dict_keys(['standard', 'custom'])
 """
 
+import os
+from pathlib import Path
+
+# Auto-ensure FFmpeg and ffprobe are in PATH on Windows
+_potential_ffmpeg_paths = [
+    Path(os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-9.0.2-full_build\bin")),
+    Path(r"C:\ProgramData\chocolatey\bin"),
+    Path(r"C:\ffmpeg\bin"),
+]
+for _p in _potential_ffmpeg_paths:
+    if _p.exists() and str(_p) not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = f"{_p};{os.environ.get('PATH', '')}"
+        break
+
 from pixelle_video.service import PixelleVideoCore, pixelle_video
 from pixelle_video.config import config_manager
 
